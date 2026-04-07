@@ -1,0 +1,29 @@
+﻿name: Deep Security Audit 🛡️
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  security_audit:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Modern Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Cargo Audit
+        run: cargo install cargo-audit
+
+      - name: Run Deep Security Scan
+        run: cargo audit

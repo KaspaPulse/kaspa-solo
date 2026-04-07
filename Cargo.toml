@@ -1,0 +1,42 @@
+﻿[package]
+name = "kaspa-solo"
+version = "1.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full", "tracing"] }
+tokio-util = "0.7"
+teloxide = { version = "0.13", features = ["macros"] }
+kaspa-wrpc-client = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+dotenvy = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dashmap = "5.5"
+anyhow = "1.0"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+reqwest = { version = "0.11", features = ["json"] }
+sysinfo = "0.29"
+rev_lines = "0.3"
+
+# Enterprise Security & Architecture Upgrades
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls"] }
+secrecy = "0.8"
+governor = "0.6"
+
+# Advanced Endgame Dependencies
+thiserror = "1.0"
+console-subscriber = "0.2"
+
+# 🛡️ Binary Hardening (Zero-Leak, Fast & Secure Build)
+[profile.release]
+lto = true          # Link Time Optimization
+codegen-units = 1   # Maximum optimization (slower compile, faster execution)
+strip = true        # Remove debug info to prevent reverse engineering
+panic = "abort"     # Immediately abort on critical panic to prevent memory leaks
