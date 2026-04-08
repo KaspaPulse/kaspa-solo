@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use teloxide::{prelude::*, types::ChatId, utils::command::BotCommands};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration, Instant};
