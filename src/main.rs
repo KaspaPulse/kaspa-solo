@@ -491,26 +491,26 @@ async fn main() -> Result<(), BotError> {
                     Ok::<(), RequestError>(())
                 })
         )
-        // 5. System/Service Messages Branch (Silently Acknowledge)
-        .branch(
-            Update::filter_message()
-                .filter(|msg: Message| msg.kind.is_service_message())
-                .endpoint(|_bot: Bot, _msg: Message| async move {
-                    tracing::debug!("[SYSTEM] Ignored a service message (e.g., auto-delete timer changed).");
-                    Ok::<(), RequestError>(())
-                })
-        )
-        // 6. Regular Text Messages Fallback Branch
+        // 5. Regular Text Messages Fallback Branch
         .branch(
             Update::filter_message()
                 .filter(|msg: Message| msg.text().is_some())
                 .endpoint(|bot: Bot, msg: Message| async move {
                     let text = msg.text().unwrap_or("");
                     if text.starts_with("kaspa:") {
-                        let _ = bot.send_message(msg.chat.id, format!("💡 Do you want to track this wallet?\nCopy and send the following command:\n`/add {}`", text)).parse_mode(teloxide::types::ParseMode::Markdown).await;
+                        // Fixed: Using Html ParseMode instead of deprecated Markdown, and <code> instead of backticks
+                        let _ = bot.send_message(msg.chat.id, format!("💡 Do you want to track this wallet?\nCopy and send the following command:\n<code>/add {}</code>", text)).parse_mode(teloxide::types::ParseMode::Html).await;
                     } else {
                         let _ = bot.send_message(msg.chat.id, "🤖 I am a bot programmed to respond to commands only.\nPress /start to open the menu, or send a Kaspa wallet address and I will guide you on how to add it.").await;
                     }
+                    Ok::<(), RequestError>(())
+                })
+        )
+        // 6. System/Service Messages Branch (Silently Acknowledge any remaining message type)
+        .branch(
+            Update::filter_message()
+                .endpoint(|_bot: Bot, _msg: Message| async move {
+                    tracing::debug!("[SYSTEM] Ignored a non-text/media message (likely a service/system message).");
                     Ok::<(), RequestError>(())
                 })
         );
@@ -518,7 +518,7 @@ async fn main() -> Result<(), BotError> {
     Dispatcher::builder(bot.clone(), handler)
         .enable_ctrlc_handler()
         // 7. The Ultimate Sinkhole (Catch-all for anything completely unexpected)
-        .default_handler(|update: Update| async move {
+        .default_handler(|update: Arc<Update>| async move {
             tracing::debug!(
                 "[SYSTEM] Dropped an completely unhandled update type: {:?}",
                 update.id
