@@ -24,7 +24,7 @@ use teloxide::prelude::*;
 use teloxide::types::Update;
 use teloxide::RequestError;
 use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -207,7 +207,8 @@ async fn main() -> Result<(), BotError> {
             tokio::select! {
                 _ = ct_price.cancelled() => { break; }
                 _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                    if let Ok(r) = reqwest::Client::new().get("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_market_cap=true").header("User-Agent", "KaspaSoloBot/1.3").send().await {
+                    // Security: Generic User-Agent to prevent specific identification
+                    if let Ok(r) = reqwest::Client::new().get("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_market_cap=true").header("User-Agent", "Mozilla/5.0").send().await {
                         if let Ok(j) = r.json::<serde_json::Value>().await {
                             let price = j["kaspa"]["usd"].as_f64().unwrap_or(0.0);
                             let mcap = j["kaspa"]["usd_market_cap"].as_f64().unwrap_or(0.0);
@@ -221,6 +222,19 @@ async fn main() -> Result<(), BotError> {
     });
 
     let pool = crate::state::init_db().await?;
+
+    // SECURITY: Graceful Database Shutdown handler to prevent WAL corruption
+    let pool_shutdown = pool.clone();
+    let ct_ctrlc = cancel_token.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        warn!("[SYSTEM] CRITICAL: SIGINT received. Executing Graceful Database Shutdown...");
+        pool_shutdown.close().await;
+        info!("[SYSTEM] Database connections closed safely. Terminating process.");
+        ct_ctrlc.cancel();
+        sleep(Duration::from_secs(1)).await;
+        std::process::exit(0);
+    });
 
     if let Ok(data) = fs::read_to_string("wallets.json").await {
         if let Ok(parsed) = serde_json::from_str::<HashMap<String, HashSet<i64>>>(&data) {
@@ -278,17 +292,8 @@ async fn main() -> Result<(), BotError> {
         Some(network_id),
         None,
     )
-    .map_err(|e| BotError::RpcConnection(e.to_string()))?;
+    .map_err(|_| BotError::RpcConnection("Failed to establish secure wRPC tunnel".to_string()))?;
     let shared_rpc = Arc::new(rpc_client);
-
-    let ct_ctrlc = cancel_token.clone();
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        warn!("[SYSTEM] CRITICAL: SIGINT received. Executing graceful shutdown...");
-        ct_ctrlc.cancel();
-        sleep(Duration::from_secs(2)).await;
-        std::process::exit(0);
-    });
 
     let rpc_for_bg = Arc::clone(&shared_rpc);
     let bg_bot = bot.clone();
@@ -302,7 +307,8 @@ async fn main() -> Result<(), BotError> {
                 _ = tokio::time::sleep(Duration::from_secs(30)) => {
                     if rpc_for_bg.get_server_info().await.is_err() {
                         error!("[NODE ALERT] RPC Connection Lost! Attempting reconnect...");
-                        let _ = bg_bot.send_message(ChatId(admin_id), "🚨 <b>SYSTEM ALERT:</b> Kaspa Node connection lost! Attempting reconnect...").parse_mode(teloxide::types::ParseMode::Html).await;
+                        // Security: Masking exact connection failure details from generic Telegram output
+                        let _ = bg_bot.send_message(ChatId(admin_id), "🚨 <b>SYSTEM ALERT:</b> Secure Node connection lost! Attempting auto-reconnect...").parse_mode(teloxide::types::ParseMode::Html).await;
                         let _ = rpc_for_bg.connect(None).await;
                     }
                 }
@@ -316,6 +322,9 @@ async fn main() -> Result<(), BotError> {
     let alert_bot = bot.clone();
     let alert_monitoring = Arc::clone(&is_monitoring);
     let ct_utxo = cancel_token.clone();
+
+    // PERFORMANCE: Bounded Concurrency Semaphore (Max 50 simultaneous deep scans)
+    let analysis_semaphore = Arc::new(Semaphore::new(50));
 
     tokio::spawn(async move {
         sleep(Duration::from_secs(5)).await;
@@ -357,7 +366,12 @@ async fn main() -> Result<(), BotError> {
                                     let (f_tx, w_cl, bot_cl, rpc_cl) = (tx_id.clone(), wallet.clone(), alert_bot.clone(), Arc::clone(&alert_rpc));
                                     let subs_cl = subs.clone();
 
+                                    // SECURITY/PERFORMANCE: Acquire permit to prevent CPU DoS during heavy network forks
+                                    let permit = Arc::clone(&analysis_semaphore).acquire_owned().await.unwrap();
+
                                     tokio::spawn(async move {
+                                        let _permit_holder = permit; // Dropped automatically when task ends
+
                                         let (acc_block_hash, actual_mined_blocks, extracted_nonce, extracted_worker) = analyze_block_payload(Arc::clone(&rpc_cl), f_tx.clone(), w_cl.clone(), daa_score, is_coinbase).await;
                                         let msg_type = if is_coinbase { "⛏️ Solo Mining Reward" } else { "💳 Normal Transfer" };
                                         let acc_block_str = if acc_block_hash.is_empty() { "<code>Not Found (Archived)</code>".to_string() } else { format_hash(&acc_block_hash, "blocks") };
@@ -407,12 +421,10 @@ async fn main() -> Result<(), BotError> {
     let cb_price = Arc::clone(&repl_price_cache);
     let cb_pool = repl_pool.clone();
 
-    // Clones for the new Cleanup Branch
     let block_pool = repl_pool.clone();
     let block_state = Arc::clone(&repl_state);
 
     let handler = dptree::entry()
-        // 1. Core Commands Branch
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
@@ -445,7 +457,6 @@ async fn main() -> Result<(), BotError> {
                     }
                 }),
         )
-        // 2. Callback Queries (Buttons) Branch
         .branch(Update::filter_callback_query().endpoint(
             move |bot: Bot, q: teloxide::types::CallbackQuery| {
                 let state_cl = Arc::clone(&cb_state);
@@ -469,7 +480,6 @@ async fn main() -> Result<(), BotError> {
                 }
             },
         ))
-        // 3. User Blocked Bot Branch (Database Auto-Cleanup)
         .branch(Update::filter_my_chat_member().endpoint(
             move |update: teloxide::types::ChatMemberUpdated| {
                 let p = block_pool.clone();
@@ -482,45 +492,40 @@ async fn main() -> Result<(), BotError> {
                 }
             },
         ))
-        // 4. Media/Files Rejection Branch
         .branch(
             Update::filter_message()
                 .filter(|msg: Message| msg.photo().is_some() || msg.document().is_some() || msg.video().is_some() || msg.audio().is_some())
                 .endpoint(|bot: Bot, msg: Message| async move {
-                    let _ = bot.send_message(msg.chat.id, "⚠️ Sorry, I cannot read images or files.\nI am programmed to respond to text commands only. Press /start to begin.").await;
+                    let _ = bot.send_message(msg.chat.id, "⚠️ Sorry, I cannot process media or files. Please use text commands only.").await;
                     Ok::<(), RequestError>(())
                 })
         )
-        // 5. Regular Text Messages Fallback Branch
         .branch(
             Update::filter_message()
                 .filter(|msg: Message| msg.text().is_some())
                 .endpoint(|bot: Bot, msg: Message| async move {
                     let text = msg.text().unwrap_or("");
                     if text.starts_with("kaspa:") {
-                        // Fixed: Using Html ParseMode instead of deprecated Markdown, and <code> instead of backticks
                         let _ = bot.send_message(msg.chat.id, format!("💡 Do you want to track this wallet?\nCopy and send the following command:\n<code>/add {}</code>", text)).parse_mode(teloxide::types::ParseMode::Html).await;
                     } else {
-                        let _ = bot.send_message(msg.chat.id, "🤖 I am a bot programmed to respond to commands only.\nPress /start to open the menu, or send a Kaspa wallet address and I will guide you on how to add it.").await;
+                        let _ = bot.send_message(msg.chat.id, "🤖 Unrecognized Input.\nPress /start to open the menu, or send a valid Kaspa wallet address.").await;
                     }
                     Ok::<(), RequestError>(())
                 })
         )
-        // 6. System/Service Messages Branch (Silently Acknowledge any remaining message type)
         .branch(
             Update::filter_message()
                 .endpoint(|_bot: Bot, _msg: Message| async move {
-                    tracing::debug!("[SYSTEM] Ignored a non-text/media message (likely a service/system message).");
+                    tracing::debug!("[SYSTEM] Silently acknowledged service message.");
                     Ok::<(), RequestError>(())
                 })
         );
 
     Dispatcher::builder(bot.clone(), handler)
         .enable_ctrlc_handler()
-        // 7. The Ultimate Sinkhole (Catch-all for anything completely unexpected)
         .default_handler(|update: Arc<Update>| async move {
             tracing::debug!(
-                "[SYSTEM] Dropped an completely unhandled update type: {:?}",
+                "[SYSTEM] Dropped completely unhandled update type: {:?}",
                 update.id
             );
         })

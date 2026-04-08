@@ -126,6 +126,11 @@ pub async fn handle_command(
             }
         }
         Command::Add(ref w) => {
+            // SECURITY: Input Length Sanitization (Prevent Memory DoS)
+            if w.len() > 85 {
+                let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, None, "⚠️ <b>Security Alert:</b> Input string exceeds maximum allowed length for a Kaspa address.", None).await;
+                return Ok(());
+            }
             let c = if w.starts_with("kaspa:") {
                 w.clone()
             } else {
@@ -165,6 +170,18 @@ pub async fn handle_command(
             }
         }
         Command::Remove(ref w) => {
+            // SECURITY: Input Length Sanitization
+            if w.len() > 85 {
+                let _ = crate::utils::send_or_edit_log(
+                    &bot,
+                    msg.chat.id,
+                    None,
+                    "⚠️ <b>Error:</b> Address string too long.",
+                    None,
+                )
+                .await;
+                return Ok(());
+            }
             let c = if w.starts_with("kaspa:") {
                 w.clone()
             } else {
@@ -672,6 +689,7 @@ pub async fn handle_callback(
     pool: SqlitePool,
 ) -> anyhow::Result<()> {
     let user_id = q.from.id.0 as i64;
+    // SECURITY: Ensure Callbacks are also rate-limited to prevent button spam DoS
     if crate::utils::is_spam(user_id) {
         tracing::warn!("[UX] Rate limited button click from User: {}", user_id);
         let _ = bot
@@ -684,7 +702,6 @@ pub async fn handle_callback(
 
     if let Some(data) = q.data.clone() {
         if let Some(msg) = q.regular_message() {
-            // 🔄 Smart Callback Router
             let (cmd, is_refresh) = match data.as_str() {
                 "cmd_balance" => (Some(Command::Balance), false),
                 "refresh_balance" => (Some(Command::Balance), true),
