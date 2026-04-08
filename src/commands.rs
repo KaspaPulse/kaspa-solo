@@ -1,4 +1,8 @@
-#![allow(clippy::too_many_arguments, clippy::unnecessary_cast, clippy::redundant_pattern_matching)]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::unnecessary_cast,
+    clippy::redundant_pattern_matching
+)]
 
 use chrono::Utc;
 use kaspa_addresses::Address;
