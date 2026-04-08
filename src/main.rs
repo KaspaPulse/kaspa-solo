@@ -395,7 +395,7 @@ async fn main() -> Result<(), BotError> {
     let repl_price_cache = Arc::clone(&price_cache);
     let repl_pool = pool.clone();
     let cmd_state = Arc::clone(&repl_state);
-    let cmd_rpc = Arc::clone(&cmd_rpc); // Note: Original code used cmd_rpc but it was not defined previously, matching logic
+    let cmd_rpc = Arc::clone(&repl_rpc);
     let cmd_mon = Arc::clone(&repl_monitoring);
     let cmd_price = Arc::clone(&price_cache);
     let cmd_pool = repl_pool.clone();
