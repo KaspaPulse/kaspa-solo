@@ -2,9 +2,17 @@
 ignore = []
 
 [licenses]
-unlicensed = "deny"
-allow = ["MIT", "Apache-2.0", "ISC", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "Zlib"]
-copyleft = "deny"
+# In modern cargo-deny, anything not explicitly allowed is automatically denied.
+# Therefore, 'unlicensed' and 'copyleft' deny flags are obsolete and removed.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "Zlib"
+]
 
 [bans]
 multiple-versions = "warn"
