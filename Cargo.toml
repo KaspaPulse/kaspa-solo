@@ -1,6 +1,5 @@
 ﻿[package]
 name = "kaspa-solo"
- = "MIT"
 edition = "2021"
 
 [dependencies]
@@ -41,4 +40,5 @@ lto = true          # Link Time Optimization
 codegen-units = 1   # Maximum optimization (slower compile, faster execution)
 strip = true        # Remove debug info to prevent reverse engineering
 panic = "abort"     # Immediately abort on critical panic to prevent memory leaks
+
 
