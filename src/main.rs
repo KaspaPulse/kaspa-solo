@@ -3,8 +3,10 @@
 mod ai;
 mod commands;
 mod context;
+mod error;
 mod handlers;
 mod kaspa_features;
+mod rag;
 mod state;
 mod utils;
 mod workers;
@@ -91,6 +93,11 @@ async fn main() -> Result<(), BotError> {
     });
 
     let state = Arc::new(DashMap::new());
+    let memory: crate::context::ContextMemory = Arc::new(DashMap::new());
+    let rate_limiter = crate::context::AppContext::new_rate_limiter();
+
+    // Initialize Vector DB
+    crate::rag::init_knowledge_base().await;
     if let Ok(data) = fs::read_to_string("wallets.json").await {
         if let Ok(parsed) = serde_json::from_str::<HashMap<String, HashSet<i64>>>(&data) {
             for (k, v) in parsed {
@@ -123,6 +130,8 @@ async fn main() -> Result<(), BotError> {
         monitoring: Arc::new(AtomicBool::new(true)),
         price_cache: Arc::new(RwLock::new((0.0, 0.0))),
         admin_id,
+        memory,
+        rate_limiter,
     };
 
     let bot_token =
@@ -155,32 +164,12 @@ async fn main() -> Result<(), BotError> {
     let handler = dptree::entry()
         .branch(
             Update::filter_message()
-                .filter_command::<Command>()
+                .filter_command::<crate::commands::Command>()
                 .endpoint(handlers::handle_command),
         )
         .branch(Update::filter_callback_query().endpoint(handlers::handle_callback))
         .branch(Update::filter_my_chat_member().endpoint(handlers::handle_block_user))
-        .branch(
-            Update::filter_message()
-                .filter(|msg: Message| {
-                    msg.photo().is_some()
-                        || msg.document().is_some()
-                        || msg.video().is_some()
-                        || msg.audio().is_some()
-                })
-                .endpoint(handlers::handle_media),
-        )
-        .branch(
-            Update::filter_message()
-                .filter(|msg: Message| msg.text().is_some())
-                .endpoint(handlers::handle_text_router),
-        )
-        .branch(
-            Update::filter_message().endpoint(|_bot: Bot, _msg: Message| async move {
-                tracing::debug!("[SYSTEM] Silently acknowledged service message.");
-                Ok::<(), anyhow::Error>(())
-            }),
-        );
+        .branch(Update::filter_message().endpoint(handlers::handle_raw_message_v2));
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![ctx]) // Inject AppContext securely to all endpoints

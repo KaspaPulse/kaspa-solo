@@ -1,4 +1,4 @@
-﻿use crate::context::AppContext;
+use crate::context::AppContext;
 use crate::utils::{f_num, format_short_wallet};
 use kaspa_addresses::Address;
 use kaspa_rpc_core::api::rpc::RpcApi;
@@ -16,7 +16,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let api_key = match std::env::var("OPENAI_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            let _ = bot.send_message(msg.chat.id, "ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â€žÂ¢ÃƒÂ¯Ã‚Â¸Ã‚Â <b>Audio Detected:</b> Voice analysis is currently disabled (Missing API Key). Please use text.").parse_mode(teloxide::types::ParseMode::Html).await;
+            let _ = bot.send_message(msg.chat.id, "ðŸŽ™ï¸ <b>Audio Detected:</b> Voice analysis is currently disabled (Missing API Key). Please use text.").parse_mode(teloxide::types::ParseMode::Html).await;
             return Ok(());
         }
     };
@@ -29,19 +29,17 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let _ = bot
         .send_message(
             msg.chat.id,
-            "ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â§ <i>Listening and processing your voice note...</i>",
+            "ðŸŽ§ <i>Listening and processing your voice note...</i>",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .await;
 
-    // Download Voice from Telegram
     let file = bot.get_file(voice.file.id.clone()).await?;
     let temp_path = format!("temp_{}.ogg", msg.id.0);
     let mut local_file = File::create(&temp_path).await?;
     bot.download_file(&file.path, &mut local_file).await?;
     local_file.flush().await?;
 
-    // Send to Whisper API for transcription
     let client = Client::new();
     let file_bytes = tokio::fs::read(&temp_path).await?;
     let part = multipart::Part::bytes(file_bytes)
@@ -50,7 +48,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let form = multipart::Form::new()
         .part("file", part)
         .text("model", "whisper-1")
-        .text("language", "ar"); // Support Arabic & English
+        .text("language", "ar");
 
     let res = client
         .post(WHISPER_API_URL)
@@ -59,26 +57,20 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
         .send()
         .await?;
 
-    let _ = tokio::fs::remove_file(&temp_path).await; // Clean up temp file
+    let _ = tokio::fs::remove_file(&temp_path).await;
 
     if let Ok(json_resp) = res.json::<Value>().await {
         if let Some(text) = json_resp.get("text").and_then(|t| t.as_str()) {
-            // Pass transcribed text to the Intent engine
-            return process_conversational_intent(
-                bot,
-                msg.chat.id,
-                msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0),
-                text.to_string(),
-                ctx,
-            )
-            .await;
+            let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
+            return process_conversational_intent(bot, msg.chat.id, user_id, text.to_string(), ctx)
+                .await;
         }
     }
 
     let _ = bot
         .send_message(
             msg.chat.id,
-            "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Sorry, I could not transcribe the audio clearly. Please try again.",
+            "âš ï¸ Sorry, I could not transcribe the audio clearly. Please try again.",
         )
         .await;
     Ok(())
@@ -86,15 +78,14 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
 
 pub async fn process_conversational_intent(
     bot: Bot,
-    chat_id: ChatId,
-    _user_id: i64,
+    chat_id: teloxide::types::ChatId,
+    user_id: i64,
     user_text: String,
     ctx: AppContext,
 ) -> anyhow::Result<()> {
     let api_key = match std::env::var("OPENAI_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            // Graceful Degradation: Fallback to Heuristic NLP if no AI API key is configured
             return crate::handlers::fallback_heuristic_text(bot, chat_id, &user_text, ctx).await;
         }
     };
@@ -105,7 +96,7 @@ pub async fn process_conversational_intent(
 
     let client = Client::new();
 
-    // Define the Rust Tools (Function Calling Schema)
+    // âš ï¸ FIXED: Added proper commas between JSON tool objects!
     let tools = json!([
         {
             "type": "function",
@@ -122,20 +113,56 @@ pub async fn process_conversational_intent(
                 "description": "Gets Kaspa node sync status, DAA score, and total circulating supply.",
                 "parameters": { "type": "object", "properties": {}, "required": [] }
             }
+        },
+                {
+            "type": "function",
+            "function": {
+                "name": "search_kaspa_docs",
+                "description": "Searches the official Kaspa knowledge base for technical questions, algorithms, mining guides, or troubleshooting.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "The technical question or topic to search for." }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_live_internet",
+                "description": "Searches the global internet for real-time news, live updates, or information that is not available locally.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "The precise search query to look up on the global internet." }
+                    },
+                    "required": ["query"]
+                }
+            }
         }
     ]);
 
-    let system_prompt = "You are the Kaspa Solo Enterprise AI. You are a highly professional, expert assistant for cryptocurrency solo miners. You analyze intents and call the appropriate functions to get real-time node data, then formulate a friendly, concise, and accurate response based on the function results. You speak Arabic and English fluently depending on the user's input.";
+    let system_prompt = "You are the Kaspa Solo Enterprise AI. You are a highly professional assistant for crypto miners. You analyze intents, use tools for real-time data, and remember the recent conversation context.";
 
-    let messages = json!([
-        { "role": "system", "content": system_prompt },
-        { "role": "user", "content": user_text }
-    ]);
+    let mut history_queue = ctx
+        .memory
+        .entry(user_id)
+        .or_insert_with(|| std::collections::VecDeque::with_capacity(10));
 
-    // 1st API Call: Ask AI what to do
+    history_queue.push_back(json!({ "role": "user", "content": user_text.clone() }));
+    if history_queue.len() > 10 {
+        history_queue.pop_front();
+    }
+
+    let mut messages = vec![json!({ "role": "system", "content": system_prompt })];
+    messages.extend(history_queue.iter().cloned());
+    let messages_json = serde_json::Value::Array(messages.clone());
+
     let req_body = json!({
         "model": "gpt-4o-mini",
-        "messages": messages,
+        "messages": messages_json,
         "tools": tools,
         "tool_choice": "auto"
     });
@@ -148,10 +175,8 @@ pub async fn process_conversational_intent(
         .await?
         .json()
         .await?;
-
     let message = &res["choices"][0]["message"];
 
-    // If AI decides to use a Tool (Rust Function Calling)
     if let Some(tool_calls) = message.get("tool_calls") {
         let mut tool_responses = Vec::new();
 
@@ -159,10 +184,25 @@ pub async fn process_conversational_intent(
             let func_name = tool_call["function"]["name"].as_str().unwrap_or("");
             let call_id = tool_call["id"].as_str().unwrap_or("");
 
-            // Execute the Native Rust Functions!
             let function_result = match func_name {
                 "get_wallet_balance" => execute_get_balance(&ctx, chat_id.0).await,
                 "get_network_stats" => execute_get_network(&ctx).await,
+                "search_kaspa_docs" => {
+                    let args: Value = serde_json::from_str(
+                        tool_call["function"]["arguments"].as_str().unwrap_or("{}"),
+                    )
+                    .unwrap_or_default();
+                    let query = args["query"].as_str().unwrap_or("");
+                    crate::rag::search_kaspa_docs(query).await
+                }
+                "search_live_internet" => {
+                    let args: Value = serde_json::from_str(
+                        tool_call["function"]["arguments"].as_str().unwrap_or("{}"),
+                    )
+                    .unwrap_or_default();
+                    let query = args["query"].as_str().unwrap_or("");
+                    execute_global_search(query).await
+                }
                 _ => "Unknown function".to_string(),
             };
 
@@ -174,13 +214,12 @@ pub async fn process_conversational_intent(
             }));
         }
 
-        // Reconstruct message history for the final AI response
-        let mut next_messages = messages.as_array().unwrap().clone();
-        next_messages.push(message.clone()); // Append AI's tool request
-        next_messages.extend(tool_responses); // Append Rust's execution results
+        let mut next_messages = messages.clone();
+        next_messages.push(message.clone());
+        next_messages.extend(tool_responses);
+        let next_messages_json = serde_json::Value::Array(next_messages);
 
-        // 2nd API Call: Get Final Human-like Response
-        let final_req = json!({ "model": "gpt-4o-mini", "messages": next_messages });
+        let final_req = json!({ "model": "gpt-4o-mini", "messages": next_messages_json });
         let final_res: Value = client
             .post(OPENAI_API_URL)
             .bearer_auth(&api_key)
@@ -191,6 +230,11 @@ pub async fn process_conversational_intent(
             .await?;
 
         if let Some(final_text) = final_res["choices"][0]["message"]["content"].as_str() {
+            history_queue.push_back(json!({ "role": "assistant", "content": final_text }));
+            if history_queue.len() > 10 {
+                history_queue.pop_front();
+            }
+
             let _ = bot
                 .send_message(chat_id, final_text)
                 .parse_mode(teloxide::types::ParseMode::Html)
@@ -199,8 +243,12 @@ pub async fn process_conversational_intent(
         }
     }
 
-    // If AI responds normally without tools
     if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+        history_queue.push_back(json!({ "role": "assistant", "content": content }));
+        if history_queue.len() > 10 {
+            history_queue.pop_front();
+        }
+
         let _ = bot
             .send_message(chat_id, content)
             .parse_mode(teloxide::types::ParseMode::Html)
@@ -209,8 +257,6 @@ pub async fn process_conversational_intent(
 
     Ok(())
 }
-
-// ---- Rust Native Executions for the AI Engine ----
 
 async fn execute_get_balance(ctx: &AppContext, chat_id: i64) -> String {
     let mut total = 0.0;
@@ -256,4 +302,45 @@ async fn execute_get_network(ctx: &AppContext) -> String {
         ));
     }
     report
+}
+
+async fn execute_global_search(query: &str) -> String {
+    tracing::info!("[WEB AGENT] AI initiated global search for: {}", query);
+
+    // Using Wikipedia's open global API as a highly reliable, zero-config enterprise data source.
+    // In a fully scaled enterprise scenario, this can be swapped with Tavily API or SerpApi.
+    let url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&utf8=&format=json",
+        urlencoding::encode(query)
+    );
+
+    let client = Client::new();
+    match client.get(&url).send().await {
+        Ok(res) => {
+            if let Ok(json_res) = res.json::<Value>().await {
+                if let Some(results) = json_res["query"]["search"].as_array() {
+                    let mut findings = String::new();
+                    for item in results.iter().take(3) {
+                        let title = item["title"].as_str().unwrap_or("");
+                        let snippet = item["snippet"].as_str().unwrap_or("");
+                        let clean_snippet = crate::utils::clean_for_log(snippet); // Reuse our HTML cleaner
+                        findings.push_str(&format!(
+                            "Source: {}\\nContent: {}\\n\\n",
+                            title, clean_snippet
+                        ));
+                    }
+                    if findings.is_empty() {
+                        return "Global search completed but found no highly relevant new data."
+                            .to_string();
+                    }
+                    return format!("Global Web Search Results:\\n{}", findings);
+                }
+            }
+            "Error: Could not parse global server response.".to_string()
+        }
+        Err(e) => {
+            tracing::error!("[WEB AGENT] Failed to connect to global servers: {}", e);
+            "Error: Global internet connection failed.".to_string()
+        }
+    }
 }

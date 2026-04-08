@@ -1,4 +1,4 @@
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+﻿use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
 pub fn main_menu_markup() -> InlineKeyboardMarkup {
     let row1 = vec![
@@ -8,7 +8,7 @@ pub fn main_menu_markup() -> InlineKeyboardMarkup {
 
     let row2 = vec![
         InlineKeyboardButton::callback("🧱 Mined Blocks", "cmd_blocks"),
-        InlineKeyboardButton::callback("📋 Tracked Wallets", "cmd_list"),
+        InlineKeyboardButton::callback("💼 Tracked Wallets", "cmd_list"),
     ];
 
     let row3 = vec![

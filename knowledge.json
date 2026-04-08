@@ -1,0 +1,18 @@
+﻿[
+  {
+    "title": "Kaspa Consensus & GHOSTDAG",
+    "content": "Kaspa is a proof-of-work (PoW) cryptocurrency which implements the GHOSTDAG protocol. Unlike traditional blockchains, GHOSTDAG does not orphan blocks created in parallel, rather allows them to coexist and orders them in consensus. The Kaspa blockchain is actually a blockDAG."
+  },
+  {
+    "title": "Mining Algorithm (kHeavyHash)",
+    "content": "Kaspa uses the kHeavyHash algorithm. It is a core-heavy algorithm, meaning it relies on the GPU/ASIC core rather than memory. It is highly energy-efficient compared to Ethash or KawPow."
+  },
+  {
+    "title": "Solo Mining vs Pool Mining",
+    "content": "In solo mining, you run your own full node and point your miners to it. If you find a block, you keep the entire reward. It requires high hashrate for consistent payouts. Pool mining combines hashrate with others for steady, smaller payouts."
+  },
+  {
+    "title": "Node Sync Issues",
+    "content": "If a Kaspa node stops syncing, the best practice is to restart the kaspad service. Ensure port 16110 (mainnet) is open. If the database is corrupted, run the node with the --reset-db flag to resync from scratch."
+  }
+]
