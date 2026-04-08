@@ -394,18 +394,25 @@ async fn main() -> Result<(), BotError> {
     let repl_monitoring = Arc::clone(&is_monitoring);
     let repl_price_cache = Arc::clone(&price_cache);
     let repl_pool = pool.clone();
+
     let cmd_state = Arc::clone(&repl_state);
     let cmd_rpc = Arc::clone(&repl_rpc);
     let cmd_mon = Arc::clone(&repl_monitoring);
     let cmd_price = Arc::clone(&price_cache);
     let cmd_pool = repl_pool.clone();
+
     let cb_state = Arc::clone(&repl_state);
     let cb_rpc = Arc::clone(&shared_rpc);
     let cb_mon = Arc::clone(&repl_monitoring);
     let cb_price = Arc::clone(&repl_price_cache);
     let cb_pool = repl_pool.clone();
 
+    // Clones for the new Cleanup Branch
+    let block_pool = repl_pool.clone();
+    let block_state = Arc::clone(&repl_state);
+
     let handler = dptree::entry()
+        // 1. Core Commands Branch
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
@@ -438,6 +445,7 @@ async fn main() -> Result<(), BotError> {
                     }
                 }),
         )
+        // 2. Callback Queries (Buttons) Branch
         .branch(Update::filter_callback_query().endpoint(
             move |bot: Bot, q: teloxide::types::CallbackQuery| {
                 let state_cl = Arc::clone(&cb_state);
@@ -460,10 +468,62 @@ async fn main() -> Result<(), BotError> {
                     Ok::<(), RequestError>(())
                 }
             },
-        ));
+        ))
+        // 3. User Blocked Bot Branch (Database Auto-Cleanup)
+        .branch(Update::filter_my_chat_member().endpoint(
+            move |update: teloxide::types::ChatMemberUpdated| {
+                let p = block_pool.clone();
+                let s = Arc::clone(&block_state);
+                async move {
+                    if update.new_chat_member.is_banned() || update.new_chat_member.is_left() {
+                        crate::state::remove_all_user_data(&p, &s, update.chat.id.0).await;
+                    }
+                    Ok::<(), RequestError>(())
+                }
+            },
+        ))
+        // 4. Media/Files Rejection Branch
+        .branch(
+            Update::filter_message()
+                .filter(|msg: Message| msg.photo().is_some() || msg.document().is_some() || msg.video().is_some() || msg.audio().is_some())
+                .endpoint(|bot: Bot, msg: Message| async move {
+                    let _ = bot.send_message(msg.chat.id, "⚠️ Sorry, I cannot read images or files.\nI am programmed to respond to text commands only. Press /start to begin.").await;
+                    Ok::<(), RequestError>(())
+                })
+        )
+        // 5. System/Service Messages Branch (Silently Acknowledge)
+        .branch(
+            Update::filter_message()
+                .filter(|msg: Message| msg.kind.is_service_message())
+                .endpoint(|_bot: Bot, _msg: Message| async move {
+                    tracing::debug!("[SYSTEM] Ignored a service message (e.g., auto-delete timer changed).");
+                    Ok::<(), RequestError>(())
+                })
+        )
+        // 6. Regular Text Messages Fallback Branch
+        .branch(
+            Update::filter_message()
+                .filter(|msg: Message| msg.text().is_some())
+                .endpoint(|bot: Bot, msg: Message| async move {
+                    let text = msg.text().unwrap_or("");
+                    if text.starts_with("kaspa:") {
+                        let _ = bot.send_message(msg.chat.id, format!("💡 Do you want to track this wallet?\nCopy and send the following command:\n`/add {}`", text)).parse_mode(teloxide::types::ParseMode::Markdown).await;
+                    } else {
+                        let _ = bot.send_message(msg.chat.id, "🤖 I am a bot programmed to respond to commands only.\nPress /start to open the menu, or send a Kaspa wallet address and I will guide you on how to add it.").await;
+                    }
+                    Ok::<(), RequestError>(())
+                })
+        );
 
     Dispatcher::builder(bot.clone(), handler)
         .enable_ctrlc_handler()
+        // 7. The Ultimate Sinkhole (Catch-all for anything completely unexpected)
+        .default_handler(|update: Update| async move {
+            tracing::debug!(
+                "[SYSTEM] Dropped an completely unhandled update type: {:?}",
+                update.id
+            );
+        })
         .build()
         .dispatch()
         .await;

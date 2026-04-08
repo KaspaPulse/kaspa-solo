@@ -66,3 +66,37 @@ pub async fn remove_wallet_from_db(pool: &SqlitePool, wallet: &str, chat_id: i64
         error!("[DB ERROR] Failed to remove wallet: {}", e);
     }
 }
+
+// 🧹 Enterprise Cleanup Function - Deletes all user data instantly when they block the bot
+pub async fn remove_all_user_data(pool: &SqlitePool, state: &SharedState, chat_id: i64) {
+    // 1. Remove from SQLite DB
+    if let Err(e) = sqlx::query("DELETE FROM user_wallets WHERE chat_id = ?1")
+        .bind(chat_id)
+        .execute(pool)
+        .await
+    {
+        error!(
+            "[DB ERROR] Failed to remove all data for user {}: {}",
+            chat_id, e
+        );
+    }
+
+    // 2. Remove from Active Memory (DashMap)
+    let mut empty_wallets = Vec::new();
+    for mut entry in state.iter_mut() {
+        entry.value_mut().remove(&chat_id);
+        if entry.value().is_empty() {
+            empty_wallets.push(entry.key().clone());
+        }
+    }
+
+    // 3. Drop unmonitored wallets from memory entirely
+    for wallet in empty_wallets {
+        state.remove(&wallet);
+    }
+
+    info!(
+        "[SYSTEM OPTIMIZATION] Wiped all tracking data for blocked/left User ID: {}",
+        chat_id
+    );
+}
