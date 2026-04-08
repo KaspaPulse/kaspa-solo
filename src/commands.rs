@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments, clippy::unnecessary_cast, clippy::redundant_pattern_matching)]
+
 use chrono::Utc;
 use kaspa_addresses::Address;
 use kaspa_rpc_core::api::rpc::RpcApi;
@@ -594,7 +596,7 @@ pub async fn handle_command(
                     .flat_map(|e| e.value().clone())
                     .collect::<HashSet<i64>>()
                 {
-                    if let Ok(_) = bot
+                    if bot
                         .send_message(ChatId(u), format!("📢 <b>Admin Broadcast:</b>\n\n{}", m))
                         .parse_mode(teloxide::types::ParseMode::Html)
                         .link_preview_options(teloxide::types::LinkPreviewOptions {
@@ -605,6 +607,7 @@ pub async fn handle_command(
                             show_above_text: false,
                         })
                         .await
+                        .is_ok()
                     {
                         success_count += 1;
                     }
