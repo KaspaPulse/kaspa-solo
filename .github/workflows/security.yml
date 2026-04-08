@@ -8,12 +8,9 @@ on:
   schedule:
     - cron: '0 0 * * 0'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   security_audit:
-    name: Dependency Vulnerability Check
+    name: Dependency Vulnerability & Supply Chain Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,8 +19,13 @@ jobs:
       - name: Install Modern Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Cargo Audit
-        run: cargo install cargo-audit
+      - name: Install Cargo Audit & Cargo Deny
+        run: |
+          cargo install cargo-audit
+          cargo install cargo-deny
 
-      - name: Run Deep Security Scan
+      - name: Run Deep Security Scan (Audit)
         run: cargo audit
+        
+      - name: Run Supply Chain Ban/License Check (Deny)
+        run: cargo deny check

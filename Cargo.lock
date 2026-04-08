@@ -2265,6 +2265,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "strsim",
  "sysinfo 0.30.13",
  "teloxide",
  "thiserror 2.0.18",

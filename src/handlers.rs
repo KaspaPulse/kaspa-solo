@@ -112,33 +112,25 @@ async fn execute_command(
 
     match cmd {
         Command::Start => {
-            if let Err(e) = bot
-                .send_message(chat_id, "🔄 Syncing Enterprise UI...")
-                .reply_markup(teloxide::types::KeyboardRemove::new())
-                .await
-            {
-                tracing::error!("[TG ERROR] Failed to send sync message: {}", e);
-            }
-            let help_text = "🤖 <b>Kaspa Enterprise Command Center</b>\n━━━━━━━━━━━━━━━━━━\nWelcome! This system provides secure, real-time Kaspa wallet monitoring directly via a private node.\n\n📌 <b>Public Commands:</b>\n<code>/add &lt;address&gt;</code> - Track a wallet\n<code>/remove &lt;address&gt;</code> - Stop tracking\n<code>/balance</code> - Check live balances & UTXOs\n<code>/blocks</code> - Count unspent mined blocks\n<code>/miner</code> - Estimate Hashrate\n<code>/network</code> - Node & Mining Stats\n\n👑 <b>Admin Commands:</b>\n<code>/sys</code> - Server Diagnostics\n<code>/pause</code> - Disconnect Engine\n<code>/resume</code> - Reconnect Engine\n<code>/restart</code> - Reboot Process";
+            let help_text = "🤖 <b>Kaspa Enterprise Command Center</b>\n━━━━━━━━━━━━━━━━━━\nWelcome! This system provides secure, real-time Kaspa wallet monitoring directly via a private node.\n\n📌 <b>Public Commands:</b>\n<code>/add &lt;address&gt;</code> - Track a wallet\n<code>/remove &lt;address&gt;</code> - Stop tracking\n<code>/balance</code> - Check live balances & UTXOs\n<code>/blocks</code> - Count unspent mined blocks\n<code>/miner</code> - Estimate Hashrate\n<code>/network</code> - Node & Mining Stats\n\n<i>Tap /help for the ultimate guide on AI and Voice features!</i>";
             if let Err(e) = bot
                 .send_message(chat_id, help_text)
                 .parse_mode(teloxide::types::ParseMode::Html)
-                .link_preview_options(teloxide::types::LinkPreviewOptions {
-                    is_disabled: true,
-                    url: None,
-                    prefer_small_media: false,
-                    prefer_large_media: false,
-                    show_above_text: false,
-                })
                 .reply_markup(crate::kaspa_features::main_menu_markup())
                 .await
             {
-                tracing::error!("[TG ERROR] Failed to send help menu: {}", e);
+                tracing::error!("[TG ERROR] Failed to send start menu: {}", e);
             }
+        }
+        Command::Help => {
+            let help_text = "📚 <b>Enterprise Engine - Ultimate Guide</b>\n━━━━━━━━━━━━━━━━━━\nWelcome to the most advanced Kaspa monitoring system.\n\n🧠 <b>1. Conversational AI & Voice</b>\n• Ask <i>\"What is my balance?\"</i> or send a <b>Voice Note</b>. The AI agent will execute your request instantly.\n\n⚡ <b>2. Smart Auto-Add</b>\n• Simply <b>paste your Kaspa address</b> in the chat to start tracking it.\n\n🎯 <b>3. Typo Correction</b>\n• If you mistype a command (e.g., <code>/balanc</code>), the engine will auto-detect your intent.\n\n<i>💡 Tip: Tap the blue \"Menu\" button to access quick commands!</i>";
+            let _ = bot
+                .send_message(chat_id, help_text)
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await;
         }
         Command::Add(ref w) => {
             if w.len() > 85 {
-                let _ = crate::utils::send_or_edit_log(&bot, chat_id, None, "⚠️ <b>Security Alert:</b> Input string exceeds maximum allowed length for a Kaspa address.", None).await;
                 return Ok(());
             }
             let c = if w.starts_with("kaspa:") {
@@ -398,7 +390,7 @@ async fn execute_command(
                     "├ <b>Total Blocks:</b> {}\n├ <b>DAA Score:</b> {}\n├ <b>Difficulty:</b> {}\n",
                     f_num(dag.block_count as f64),
                     dag.virtual_daa_score,
-                    crate::kaspa_features::format_difficulty(dag.difficulty as f64)
+                    crate::kaspa_features::format_difficulty(dag.difficulty)
                 ));
             }
             if let Ok(hashrate) = ctx.rpc.estimate_network_hashes_per_second(1000, None).await {
@@ -651,7 +643,7 @@ async fn execute_command(
     Ok(())
 }
 
-// 🛡️ Fallback System Handlers
+// 🛡️ Hybrid Routing Architecture
 pub async fn handle_block_user(
     update: teloxide::types::ChatMemberUpdated,
     ctx: AppContext,
@@ -662,22 +654,109 @@ pub async fn handle_block_user(
     Ok(())
 }
 
-pub async fn handle_media(bot: Bot, msg: Message) -> anyhow::Result<()> {
+pub async fn handle_media(bot: Bot, msg: Message, ctx: AppContext) -> anyhow::Result<()> {
+    if msg.voice().is_some() {
+        return crate::ai::process_voice_message(bot, msg, ctx).await;
+    }
+
+    let text = if msg.audio().is_some() || msg.video_note().is_some() {
+        "🎙️ <b>System Notice:</b> Please send voice notes directly, not audio files or video notes."
+    } else if msg.photo().is_some() || msg.video().is_some() {
+        "📸 <b>Media Detected:</b> I cannot analyze images or videos visually. Please use text."
+    } else {
+        "⚠️ <b>Format Error:</b> Unsupported file type. Please use text commands."
+    };
     let _ = bot
-        .send_message(
-            msg.chat.id,
-            "⚠️ Sorry, I cannot process media or files. Please use text commands only.",
-        )
+        .send_message(msg.chat.id, text)
+        .parse_mode(teloxide::types::ParseMode::Html)
         .await;
     Ok(())
 }
 
-pub async fn handle_invalid_text(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    let text = msg.text().unwrap_or("");
-    if text.starts_with("kaspa:") {
-        let _ = bot.send_message(msg.chat.id, format!("💡 Do you want to track this wallet?\nCopy and send the following command:\n<code>/add {}</code>", text)).parse_mode(teloxide::types::ParseMode::Html).await;
-    } else {
-        let _ = bot.send_message(msg.chat.id, "🤖 Unrecognized Input.\nPress /start to open the menu, or send a valid Kaspa wallet address.").await;
+pub async fn handle_text_router(bot: Bot, msg: Message, ctx: AppContext) -> anyhow::Result<()> {
+    let raw_text = msg.text().unwrap_or("").trim();
+    let lower_text = raw_text.to_lowercase();
+
+    // FAST PATH: 0ms Execution
+    if raw_text.starts_with('/')
+        || lower_text.starts_with("kaspa:")
+        || (lower_text.starts_with('q') && lower_text.len() >= 60)
+    {
+        return fallback_heuristic_text(bot, msg.chat.id, raw_text, ctx).await;
     }
+
+    // AI PATH: Conversational Intent Routing
+    let chat_id = msg.chat.id;
+    let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
+    crate::ai::process_conversational_intent(bot, chat_id, user_id, raw_text.to_string(), ctx).await
+}
+
+pub async fn fallback_heuristic_text(
+    bot: Bot,
+    chat_id: teloxide::types::ChatId,
+    raw_text: &str,
+    ctx: AppContext,
+) -> anyhow::Result<()> {
+    let lower_text = raw_text.to_lowercase();
+
+    if lower_text.starts_with("kaspa:") || (lower_text.starts_with('q') && lower_text.len() >= 60) {
+        let clean_address = if lower_text.starts_with("kaspa:") {
+            raw_text.to_string()
+        } else {
+            format!("kaspa:{}", raw_text)
+        };
+        if kaspa_addresses::Address::try_from(clean_address.as_str()).is_ok() {
+            ctx.state
+                .entry(clean_address.clone())
+                .or_insert_with(std::collections::HashSet::new)
+                .insert(chat_id.0);
+            crate::state::add_wallet_to_db(&ctx.pool, &clean_address, chat_id.0).await;
+            let _ = bot
+                .send_message(
+                    chat_id,
+                    format!(
+                        "⚡ <b>Smart Auto-Add Activated!</b>\n✅ Now tracking:\n<code>{}</code>",
+                        clean_address
+                    ),
+                )
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await;
+        }
+        return Ok(());
+    }
+
+    if raw_text.starts_with('/') {
+        let known_commands = vec![
+            "/start", "/help", "/add", "/remove", "/list", "/balance", "/blocks", "/miner",
+            "/network", "/dag", "/price", "/market", "/supply", "/fees", "/donate",
+        ];
+        for cmd in known_commands {
+            if strsim::levenshtein(&lower_text, cmd) <= 2 && lower_text.len() > 2 {
+                let _ = bot
+                    .send_message(
+                        chat_id,
+                        format!("🤖 <b>Command not found.</b>\nDid you mean {} ?", cmd),
+                    )
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await;
+                return Ok(());
+            }
+        }
+    }
+
+    let response = if lower_text.contains("balance") || lower_text.contains("funds") {
+        "💰 Tap /balance to view your live node data."
+    } else if lower_text.contains("hashrate") || lower_text.contains("speed") {
+        "⛏️ Tap /miner to estimate your solo hashrate."
+    } else if lower_text.contains("block") || lower_text.contains("mined") {
+        "🧱 Tap /blocks to view mined blocks."
+    } else {
+        "🤖 <b>Unrecognized Input.</b> Press /start for the menu."
+    };
+
+    let _ = bot
+        .send_message(chat_id, response)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await;
     Ok(())
 }

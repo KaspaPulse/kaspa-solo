@@ -5,6 +5,8 @@
 pub enum Command {
     #[command(description = "Start the bot and show help.")]
     Start,
+    #[command(description = "Show the ultimate guide and features.")]
+    Help,
     #[command(description = "Add a wallet: /add <address>")]
     Add(String),
     #[command(description = "Remove a wallet: /remove <address>")]

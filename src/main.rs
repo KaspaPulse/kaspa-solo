@@ -1,5 +1,6 @@
 #![allow(clippy::manual_range_contains)]
 
+mod ai;
 mod commands;
 mod context;
 mod handlers;
@@ -131,6 +132,7 @@ async fn main() -> Result<(), BotError> {
 
     let public_commands = vec![
         teloxide::types::BotCommand::new("start", "Start the bot and show help"),
+        teloxide::types::BotCommand::new("help", "Show the ultimate guide and features"),
         teloxide::types::BotCommand::new("add", "Track a wallet"),
         teloxide::types::BotCommand::new("remove", "Stop tracking a wallet"),
         teloxide::types::BotCommand::new("balance", "Check live balance & UTXOs"),
@@ -171,7 +173,7 @@ async fn main() -> Result<(), BotError> {
         .branch(
             Update::filter_message()
                 .filter(|msg: Message| msg.text().is_some())
-                .endpoint(handlers::handle_invalid_text),
+                .endpoint(handlers::handle_text_router),
         )
         .branch(
             Update::filter_message().endpoint(|_bot: Bot, _msg: Message| async move {

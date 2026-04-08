@@ -21,7 +21,7 @@ chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 sysinfo = "0.30"
 rev_lines = "0.3"
 
@@ -33,6 +33,7 @@ governor = "0.6"
 # Advanced Endgame Dependencies
 thiserror = "2.0"
 console-subscriber = "0.4"
+strsim = "0.11.1"
 
 # ??? Binary Hardening (Zero-Leak, Fast & Secure Build)
 [profile.release]
@@ -40,3 +41,5 @@ lto = true          # Link Time Optimization
 codegen-units = 1   # Maximum optimization (slower compile, faster execution)
 strip = true        # Remove debug info to prevent reverse engineering
 panic = "abort"     # Immediately abort on critical panic to prevent memory leaks
+
+
