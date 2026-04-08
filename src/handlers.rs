@@ -13,7 +13,7 @@ use std::io::BufReader;
 use std::sync::atomic::Ordering;
 use sysinfo::System;
 use teloxide::{prelude::*, types::ChatId};
-// ✅ FIXED: Removed unused sleep and Duration imports to resolve "Fatal" compiler warnings
+// ✅ FIXED: Removed unused sleep and Duration imports to resolve CI warnings
 use tokio::time::Instant;
 
 use crate::commands::Command;

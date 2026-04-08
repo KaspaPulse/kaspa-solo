@@ -91,7 +91,6 @@ async fn main() -> Result<(), BotError> {
         ct_ctrlc.cancel();
         sleep(Duration::from_secs(2)).await;
         info!("[SYSTEM] Shutdown complete.");
-        return;
     });
 
     let state = Arc::new(DashMap::new());
