@@ -13,7 +13,8 @@ use std::io::BufReader;
 use std::sync::atomic::Ordering;
 use sysinfo::System;
 use teloxide::{prelude::*, types::ChatId};
-use tokio::time::{sleep, Duration, Instant};
+// ✅ FIXED: Removed unused sleep and Duration imports to resolve "Fatal" compiler warnings
+use tokio::time::Instant;
 
 use crate::commands::Command;
 use crate::context::AppContext;
@@ -41,7 +42,7 @@ pub async fn handle_callback(
         tracing::warn!("[UX] Rate limited button click from User: {}", user_id);
         let _ = bot
             .answer_callback_query(q.id.clone())
-            .text("âš ï¸ Processing... Please wait a moment!")
+            .text("⚠️ Processing... Please wait a moment!")
             .show_alert(false)
             .await;
         return Ok(());
@@ -179,9 +180,17 @@ async fn execute_command(
         }
         Command::Balance => {
             let mut total = 0.0;
-            let mut text = format!("ðŸ’° <b>Wallet Analysis & Live Balance</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
-            for e in ctx.state.iter().filter(|e| e.value().contains(&chat_id.0)) {
-                if let Ok(a) = Address::try_from(e.key().as_str()) {
+            let mut text = format!("💰 <b>Wallet Analysis & Live Balance</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
+
+            let tracked_wallets: Vec<String> = ctx
+                .state
+                .iter()
+                .filter(|e| e.value().contains(&chat_id.0))
+                .map(|e| e.key().clone())
+                .collect();
+
+            for wallet_str in tracked_wallets {
+                if let Ok(a) = Address::try_from(wallet_str.as_str()) {
                     if let Ok(utxos) = ctx.rpc.get_utxos_by_addresses(vec![a.clone()]).await {
                         let k = utxos
                             .iter()
@@ -189,12 +198,12 @@ async fn execute_command(
                             .sum::<f64>()
                             / 1e8;
                         total += k;
-                        text.push_str(&format!("⏱️ <code>{}</code>\nâ”œ <b>Live Balance:</b> {:.8} KAS\nâ”” <b>UTXOs:</b> {}\n\n", format_short_wallet(e.key()), k, utxos.len()));
+                        text.push_str(&format!("⏱️ <code>{}</code>\n├ <b>Live Balance:</b> {:.8} KAS\n└ <b>UTXOs:</b> {}\n\n", format_short_wallet(&wallet_str), k, utxos.len()));
                     }
                 }
             }
             text.push_str(&format!(
-                "━━━━━━━━━━━━━━━━━━\nðŸ’Ž <b>Total Holdings:</b> <code>{} KAS</code>",
+                "━━━━━━━━━━━━━━━━━━\n💎 <b>Total Holdings:</b> <code>{} KAS</code>",
                 f_num(total)
             ));
             let _ = crate::utils::send_or_edit_log(
@@ -218,13 +227,13 @@ async fn execute_command(
                     &bot,
                     chat_id,
                     edit_msg_id,
-                    "âš ï¸ <b>No wallets tracked.</b>",
+                    "⚠️ <b>No wallets tracked.</b>",
                     None,
                 )
                 .await;
                 return Ok(());
             }
-            let mut text = format!("ðŸ§± <b>Mined Blocks Tracker (Unspent)</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
+            let mut text = format!("🧱 <b>Mined Blocks Tracker (Unspent)</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
             let (mut global_blocks, mut global_rewards) = (0, 0.0);
             for w in tracked {
                 if let Ok(addr) = Address::try_from(w.as_str()) {
@@ -241,11 +250,11 @@ async fn execute_command(
                             / 1e8;
                         global_blocks += total_blocks;
                         global_rewards += total_kas;
-                        text.push_str(&format!("⏱️ <code>{}</code>\nâ”œ <b>Blocks Mined:</b> {}\nâ”” <b>Rewards Value:</b> {:.8} KAS\n\n", crate::utils::format_short_wallet(&w), total_blocks, total_kas));
+                        text.push_str(&format!("⏱️ <code>{}</code>\n├ <b>Blocks Mined:</b> {}\n└ <b>Rewards Value:</b> {:.8} KAS\n\n", crate::utils::format_short_wallet(&w), total_blocks, total_kas));
                     }
                 }
             }
-            text.push_str(&format!("━━━━━━━━━━━━━━━━━━\nðŸ† <b>Total Blocks:</b> {}\nðŸ’Ž <b>Total Mined Value:</b> {:.8} KAS\n\n<i>*Note: Nodes only index unspent block rewards.</i>", global_blocks, global_rewards));
+            text.push_str(&format!("━━━━━━━━━━━━━━━━━━\n🏆 <b>Total Blocks:</b> {}\n💎 <b>Total Mined Value:</b> {:.8} KAS\n\n<i>*Note: Nodes only index unspent block rewards.</i>", global_blocks, global_rewards));
             let _ = crate::utils::send_or_edit_log(
                 &bot,
                 chat_id,
@@ -265,7 +274,7 @@ async fn execute_command(
             if tracked.is_empty() {
                 return Ok(());
             }
-            let mut text = format!("â›ï¸ <b>Solo-Miner Hashrate Estimation</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
+            let mut text = format!("⛏️ <b>Solo-Miner Hashrate Estimation</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n", current_utc_time);
             if let Ok(dag_info) = ctx.rpc.get_block_dag_info().await {
                 if let Ok(net_hashrate) =
                     ctx.rpc.estimate_network_hashes_per_second(1000, None).await
@@ -293,11 +302,11 @@ async fn execute_command(
                                         b_7d += 1;
                                     }
                                 }
-                                text.push_str(&format!("⏱️ <code>{}</code>\nâ”œ <b>1 Hour:</b> {} ({} Blks)\nâ”œ <b>24 Hours:</b> {} ({} Blks)\nâ”” <b>7 Days:</b> {} ({} Blks)\n\n", crate::utils::format_short_wallet(&w), crate::kaspa_features::format_hashrate(net_hashrate * (b_1h as f64 / 3600.0)), b_1h, crate::kaspa_features::format_hashrate(net_hashrate * (b_24h as f64 / 86400.0)), b_24h, crate::kaspa_features::format_hashrate(net_hashrate * (b_7d as f64 / 604800.0)), b_7d));
+                                text.push_str(&format!("⏱️ <code>{}</code>\n├ <b>1 Hour:</b> {} ({} Blks)\n├ <b>24 Hours:</b> {} ({} Blks)\n└ <b>7 Days:</b> {} ({} Blks)\n\n", crate::utils::format_short_wallet(&w), crate::kaspa_features::format_hashrate(net_hashrate * (b_1h as f64 / 3600.0)), b_1h, crate::kaspa_features::format_hashrate(net_hashrate * (b_24h as f64 / 86400.0)), b_24h, crate::kaspa_features::format_hashrate(net_hashrate * (b_7d as f64 / 604800.0)), b_7d));
                             }
                         }
                     }
-                    text.push_str(&format!("━━━━━━━━━━━━━━━━━━\nðŸŒ <b>Network Hashrate:</b> {}\n<i>*Note: Based on unspent node rewards.</i>", crate::kaspa_features::format_hashrate(net_hashrate)));
+                    text.push_str(&format!("━━━━━━━━━━━━━━━━━━\n🌐 <b>Network Hashrate:</b> {}\n<i>*Note: Based on unspent node rewards.</i>", crate::kaspa_features::format_hashrate(net_hashrate)));
                 }
             }
             let _ = crate::utils::send_or_edit_log(
@@ -310,39 +319,39 @@ async fn execute_command(
             .await;
         }
         Command::Network => {
-            let mut text = String::from("ðŸ› ï¸ <b>Node Health & Network</b>\n");
+            let mut text = String::from("🛠️ <b>Node Health & Network</b>\n");
             if let Ok(info) = ctx.rpc.get_server_info().await {
                 text.push_str(&format!(
-                    "â”œ <b>Version:</b> {} | <b>Net:</b> {}\nâ”œ <b>UTXO Index:</b> {}\n",
+                    "├ <b>Version:</b> {} | <b>Net:</b> {}\n├ <b>UTXO Index:</b> {}\n",
                     info.server_version,
                     info.network_id,
                     if info.has_utxo_index {
-                        "Enabled âœ…"
+                        "Enabled ✅"
                     } else {
-                        "Disabled âŒ"
+                        "Disabled ❌"
                     }
                 ));
             }
             if let Ok(peers) = ctx.rpc.get_connected_peer_info().await {
                 text.push_str(&format!(
-                    "â”œ <b>Connected Peers:</b> {}\n",
+                    "├ <b>Connected Peers:</b> {}\n",
                     peers.peer_info.len()
                 ));
             }
             if let Ok(sync) = ctx.rpc.get_sync_status().await {
                 text.push_str(&format!(
-                    "â”” <b>Sync Status:</b> {}\n\n",
+                    "└ <b>Sync Status:</b> {}\n\n",
                     if sync {
-                        "100% Synced âœ…"
+                        "100% Synced ✅"
                     } else {
-                        "Syncing âš ï¸"
+                        "Syncing ⚠️"
                     }
                 ));
             }
-            text.push_str("ðŸ“Š <b>GHOSTDAG Consensus</b>\n");
+            text.push_str("📊 <b>GHOSTDAG Consensus</b>\n");
             if let Ok(dag) = ctx.rpc.get_block_dag_info().await {
                 text.push_str(&format!(
-                    "â”œ <b>Total Blocks:</b> {}\nâ”œ <b>DAA Score:</b> {}\nâ”œ <b>Difficulty:</b> {}\n",
+                    "├ <b>Total Blocks:</b> {}\n├ <b>DAA Score:</b> {}\n├ <b>Difficulty:</b> {}\n",
                     f_num(dag.block_count as f64),
                     dag.virtual_daa_score,
                     crate::kaspa_features::format_difficulty(dag.difficulty)
@@ -350,7 +359,7 @@ async fn execute_command(
             }
             if let Ok(hashrate) = ctx.rpc.estimate_network_hashes_per_second(1000, None).await {
                 text.push_str(&format!(
-                    "â”œ <b>Hashrate:</b> {}\n",
+                    "├ <b>Hashrate:</b> {}\n",
                     crate::kaspa_features::format_hashrate(hashrate as f64)
                 ));
             }
@@ -358,7 +367,7 @@ async fn execute_command(
                 let circ = supply.circulating_sompi as f64 / 1e8;
                 let max = supply.max_sompi as f64 / 1e8;
                 text.push_str(&format!(
-                    "â”œ <b>Circulating:</b> {} KAS\nâ”” <b>Minted:</b> {:.2}%\n\n",
+                    "├ <b>Circulating:</b> {} KAS\n└ <b>Minted:</b> {:.2}%\n\n",
                     f_num(circ),
                     (circ / max) * 100.0
                 ));
@@ -375,7 +384,7 @@ async fn execute_command(
         }
         Command::Dag => {
             if let Ok(info) = ctx.rpc.get_block_dag_info().await {
-                let text = format!("ðŸ§± <b>BlockDAG Details:</b>\nðŸ§± <b>Blocks:</b> <code>{}</code>\nðŸ“‘ <b>Headers:</b> <code>{}</code>\n\n⏱️ <code>{}</code>", f_num(info.block_count as f64), f_num(info.header_count as f64), current_utc_time);
+                let text = format!("📊 <b>BlockDAG Details:</b>\n🧱 <b>Blocks:</b> <code>{}</code>\n📜 <b>Headers:</b> <code>{}</code>\n\n⏱️ <code>{}</code>", f_num(info.block_count as f64), f_num(info.header_count as f64), current_utc_time);
                 let _ = crate::utils::send_or_edit_log(
                     &bot,
                     chat_id,
@@ -390,12 +399,12 @@ async fn execute_command(
             let price = ctx.price_cache.read().await.0;
             let text = if price > 0.0 {
                 format!(
-                    "ðŸ’µ <b>Price:</b> <code>${:.4} USD</code> (CoinGecko)\n\n⏱️ <code>{}</code>",
+                    "💵 <b>Price:</b> <code>${:.4} USD</code> (CoinGecko)\n\n⏱️ <code>{}</code>",
                     price, current_utc_time
                 )
             } else {
                 format!(
-                    "âš ï¸ <b>Price API Syncing...</b>\n\n⏱️ <code>{}</code>",
+                    "⚠️ <b>Price API Syncing...</b>\n\n⏱️ <code>{}</code>",
                     current_utc_time
                 )
             };
@@ -412,13 +421,13 @@ async fn execute_command(
             let mcap = ctx.price_cache.read().await.1;
             let text = if mcap > 0.0 {
                 format!(
-                    "ðŸ“ˆ <b>Market Cap:</b> <code>${} USD</code> (CoinGecko)\n\n⏱️ <code>{}</code>",
+                    "📈 <b>Market Cap:</b> <code>${} USD</code> (CoinGecko)\n\n⏱️ <code>{}</code>",
                     f_num(mcap),
                     current_utc_time
                 )
             } else {
                 format!(
-                    "âš ï¸ <b>Market Cap API Syncing...</b>\n\n⏱️ <code>{}</code>",
+                    "⚠️ <b>Market Cap API Syncing...</b>\n\n⏱️ <code>{}</code>",
                     current_utc_time
                 )
             };
@@ -435,7 +444,7 @@ async fn execute_command(
             if let Ok(supply) = ctx.rpc.get_coin_supply().await {
                 let circ = supply.circulating_sompi as f64 / 1e8;
                 let max = supply.max_sompi as f64 / 1e8;
-                let text = format!("ðŸª™ <b>Coin Supply:</b>\nâ”œ <b>Circulating:</b> <code>{} KAS</code>\nâ”œ <b>Max Supply:</b> <code>{} KAS</code>\nâ”” <b>Minted:</b> <code>{:.2}%</code>\n\n⏱️ <code>{}</code>", f_num(circ), f_num(max), (circ / max) * 100.0, current_utc_time);
+                let text = format!("🪙 <b>Coin Supply:</b>\n├ <b>Circulating:</b> <code>{} KAS</code>\n├ <b>Max Supply:</b> <code>{} KAS</code>\n└ <b>Minted:</b> <code>{:.2}%</code>\n\n⏱️ <code>{}</code>", f_num(circ), f_num(max), (circ / max) * 100.0, current_utc_time);
                 let _ = crate::utils::send_or_edit_log(
                     &bot,
                     chat_id,
@@ -449,7 +458,7 @@ async fn execute_command(
         Command::Fees => {
             if let Ok(r) = reqwest::get("https://api.kaspa.org/info/fee-estimate").await {
                 if let Ok(j) = r.json::<serde_json::Value>().await {
-                    let text = format!("â›½ <b>Fee Estimate:</b> <code>{:.2} sompi/gram</code>\n\n⏱️ <code>{}</code>", j["normalBuckets"][0]["feerate"].as_f64().unwrap_or(0.0), current_utc_time);
+                    let text = format!("⛽ <b>Fee Estimate:</b> <code>{:.2} sompi/gram</code>\n\n⏱️ <code>{}</code>", j["normalBuckets"][0]["feerate"].as_f64().unwrap_or(0.0), current_utc_time);
                     let _ = crate::utils::send_or_edit_log(
                         &bot,
                         chat_id,
@@ -467,10 +476,10 @@ async fn execute_command(
                     ctx.state.iter().flat_map(|e| e.value().clone()).collect();
                 let ping = tokio::time::Instant::now();
                 let status = match ctx.rpc.get_server_info().await {
-                    Ok(_) => format!("Online ðŸŸ¢ ({}ms)", ping.elapsed().as_millis()),
-                    Err(_) => "Offline ðŸ”´".to_string(),
+                    Ok(_) => format!("Online 🟢 ({}ms)", ping.elapsed().as_millis()),
+                    Err(_) => "Offline 🔴".to_string(),
                 };
-                let text = format!("ðŸ“Š <b>Enterprise Analytics</b>\n━━━━━━━━━━━━━━━━━━\nðŸ‘¥ <b>Active Users:</b> {}\nðŸ’¼ <b>Tracked Wallets:</b> {}\nðŸŒ <b>Node Ping:</b> {}\n\n⏱️ <code>{}</code>", total_users.len(), ctx.state.len(), status, current_utc_time);
+                let text = format!("📊 <b>Enterprise Analytics</b>\n━━━━━━━━━━━━━━━━━━\n👥 <b>Active Users:</b> {}\n💼 <b>Tracked Wallets:</b> {}\n🌐 <b>Node Ping:</b> {}\n\n⏱️ <code>{}</code>", total_users.len(), ctx.state.len(), status, current_utc_time);
                 let _ = crate::utils::send_or_edit_log(
                     &bot,
                     chat_id,
@@ -483,9 +492,21 @@ async fn execute_command(
         }
         Command::Sys => {
             if is_admin {
-                let mut s = System::new_all();
-                s.refresh_all();
-                let text = format!("âš™ï¸ <b>Server Node Diagnostics:</b>\nðŸ§  <b>RAM Used:</b> <code>{} MB</code>\nðŸ§  <b>RAM Total:</b> <code>{} MB</code>\nðŸ‘€ <b>Monitor:</b> <code>{}</code>\n\n⏱️ <code>{}</code>", s.used_memory()/1024/1024, s.total_memory()/1024/1024, ctx.monitoring.load(Ordering::Relaxed), current_utc_time);
+                let monitoring = ctx.monitoring.load(Ordering::Relaxed);
+                let current_time = current_utc_time.clone();
+
+                let (used_mem, total_mem) = tokio::task::spawn_blocking(move || {
+                    let mut s = System::new_all();
+                    s.refresh_all();
+                    (
+                        s.used_memory() / 1024 / 1024,
+                        s.total_memory() / 1024 / 1024,
+                    )
+                })
+                .await
+                .unwrap_or((0, 0));
+
+                let text = format!("⚙️ <b>Server Node Diagnostics:</b>\n🧠 <b>RAM Used:</b> <code>{} MB</code>\n🧠 <b>RAM Total:</b> <code>{} MB</code>\n👀 <b>Monitor:</b> <code>{}</code>\n\n⏱️ <code>{}</code>", used_mem, total_mem, monitoring, current_time);
                 let _ = crate::utils::send_or_edit_log(
                     &bot,
                     chat_id,
@@ -503,7 +524,7 @@ async fn execute_command(
                     &bot,
                     chat_id,
                     None,
-                    "â¸ï¸ <b>Monitoring Paused.</b>".to_string(),
+                    "⏸️ <b>Monitoring Paused.</b>".to_string(),
                     None,
                 )
                 .await;
@@ -516,7 +537,7 @@ async fn execute_command(
                     &bot,
                     chat_id,
                     None,
-                    "â–¶ï¸ <b>Monitoring Active.</b>".to_string(),
+                    "▶️ <b>Monitoring Active.</b>".to_string(),
                     None,
                 )
                 .await;
@@ -528,7 +549,7 @@ async fn execute_command(
                     &bot,
                     chat_id,
                     None,
-                    "ðŸ”„ <b>Restarting safely...</b>".to_string(),
+                    "🔄 <b>Restarting safely...</b>".to_string(),
                     None,
                 )
                 .await;
@@ -537,28 +558,27 @@ async fn execute_command(
         }
         Command::Broadcast(ref m) => {
             if is_admin {
-                let mut count = 0;
-                for u in ctx
-                    .state
-                    .iter()
-                    .flat_map(|e| e.value().clone())
-                    .collect::<HashSet<i64>>()
-                {
-                    if bot
-                        .send_message(ChatId(u), format!("ðŸ“¢ <b>Admin Broadcast:</b>\n\n{}", m))
-                        .parse_mode(teloxide::types::ParseMode::Html)
-                        .await
-                        .is_ok()
-                    {
-                        count += 1;
-                    }
-                    sleep(Duration::from_millis(50)).await;
+                let users: HashSet<i64> =
+                    ctx.state.iter().flat_map(|e| e.value().clone()).collect();
+
+                let count = users.len();
+                for u in users {
+                    let bot_clone = bot.clone();
+                    let msg_text = format!("📢 <b>Admin Broadcast:</b>\n\n{}", m);
+
+                    tokio::spawn(async move {
+                        let _ = bot_clone
+                            .send_message(ChatId(u), msg_text)
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await;
+                    });
                 }
+
                 let _ = crate::utils::send_or_edit_log(
                     &bot,
                     chat_id,
                     None,
-                    format!("âœ… Broadcast sent to {} users.", count),
+                    format!("✅ Broadcast sent to {} users.", count),
                     None,
                 )
                 .await;
@@ -577,7 +597,7 @@ async fn execute_command(
                         chat_id,
                         None,
                         format!(
-                            "ðŸ“œ <b>System Logs (Tail):</b>\n<pre>{}</pre>",
+                            "📜 <b>System Logs (Tail):</b>\n<pre>{}</pre>",
                             lines.join("\n")
                         ),
                         None,
@@ -587,7 +607,7 @@ async fn execute_command(
             }
         }
         Command::Donate => {
-            let _ = crate::utils::send_or_edit_log(&bot, chat_id, None, "â¤ï¸ <b>Support & Donate</b>\nIf you find this bot valuable, consider supporting its development!\n\n<b>Kaspa (KAS) Address:</b>\n<code>kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g</code>".to_string(), None).await;
+            let _ = crate::utils::send_or_edit_log(&bot, chat_id, None, "❤️ <b>Support & Donate</b>\nIf you find this bot valuable, consider supporting its development!\n\n<b>Kaspa (KAS) Address:</b>\n<code>kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g</code>".to_string(), None).await;
         }
     };
     tracing::info!(
@@ -598,7 +618,6 @@ async fn execute_command(
     Ok(())
 }
 
-// ðŸ›¡ï¸ Hybrid Routing Architecture
 pub async fn handle_block_user(
     update: teloxide::types::ChatMemberUpdated,
     ctx: AppContext,
@@ -616,11 +635,11 @@ pub async fn handle_media(bot: Bot, msg: Message, ctx: AppContext) -> anyhow::Re
     }
 
     let text = if msg.audio().is_some() || msg.video_note().is_some() {
-        "ðŸŽ™ï¸ <b>System Notice:</b> Please send voice notes directly, not audio files or video notes."
+        "🎙️ <b>System Notice:</b> Please send voice notes directly, not audio files or video notes."
     } else if msg.photo().is_some() || msg.video().is_some() {
-        "ðŸ“¸ <b>Media Detected:</b> I cannot analyze images or videos visually. Please use text."
+        "📸 <b>Media Detected:</b> I cannot analyze images or videos visually. Please use text."
     } else {
-        "âš ï¸ <b>Format Error:</b> Unsupported file type. Please use text commands."
+        "⚠️ <b>Format Error:</b> Unsupported file type. Please use text commands."
     };
     let _ = bot
         .send_message(msg.chat.id, text)
@@ -634,7 +653,6 @@ pub async fn handle_text_router(bot: Bot, msg: Message, ctx: AppContext) -> anyh
     let raw_text = msg.text().unwrap_or("").trim();
     let lower_text = raw_text.to_lowercase();
 
-    // FAST PATH: 0ms Execution
     if raw_text.starts_with('/')
         || lower_text.starts_with("kaspa:")
         || (lower_text.starts_with('q') && lower_text.len() >= 60)
@@ -642,7 +660,6 @@ pub async fn handle_text_router(bot: Bot, msg: Message, ctx: AppContext) -> anyh
         return fallback_heuristic_text(bot, msg.chat.id, raw_text, ctx).await;
     }
 
-    // AI PATH: Conversational Intent Routing
     let chat_id = msg.chat.id;
     let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
     crate::ai::process_conversational_intent(bot, chat_id, user_id, raw_text.to_string(), ctx).await
@@ -672,7 +689,7 @@ pub async fn fallback_heuristic_text(
                 .send_message(
                     chat_id,
                     format!(
-                        "âš¡ <b>Smart Auto-Add Activated!</b>\nâœ… Now tracking:\n<code>{}</code>",
+                        "⚡ <b>Smart Auto-Add Activated!</b>\n✅ Now tracking:\n<code>{}</code>",
                         clean_address
                     ),
                 )
@@ -692,7 +709,7 @@ pub async fn fallback_heuristic_text(
                 let _ = bot
                     .send_message(
                         chat_id,
-                        format!("ðŸ¤– <b>Command not found.</b>\nDid you mean {} ?", cmd),
+                        format!("🤖 <b>Command not found.</b>\nDid you mean {} ?", cmd),
                     )
                     .parse_mode(teloxide::types::ParseMode::Html)
                     .await;
@@ -702,13 +719,13 @@ pub async fn fallback_heuristic_text(
     }
 
     let response = if lower_text.contains("balance") || lower_text.contains("funds") {
-        "ðŸ’° Tap /balance to view your live node data."
+        "💰 Tap /balance to view your live node data."
     } else if lower_text.contains("hashrate") || lower_text.contains("speed") {
-        "â›ï¸ Tap /miner to estimate your solo hashrate."
+        "⛏️ Tap /miner to estimate your solo hashrate."
     } else if lower_text.contains("block") || lower_text.contains("mined") {
-        "ðŸ§± Tap /blocks to view mined blocks."
+        "🧱 Tap /blocks to view mined blocks."
     } else {
-        "ðŸ¤– <b>Unrecognized Input.</b> Press /start for the menu."
+        "🤖 <b>Unrecognized Input.</b> Press /start for the menu."
     };
 
     let _ = bot
@@ -725,7 +742,6 @@ pub async fn handle_raw_message_v2(
 ) -> anyhow::Result<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
 
-    // 1. Governor Security Shield
     if user_id != ctx.admin_id && ctx.rate_limiter.check_key(&user_id).is_err() {
         tracing::warn!("[SECURITY] Spam blocked for User: {}", user_id);
         let _ = bot
@@ -738,12 +754,10 @@ pub async fn handle_raw_message_v2(
         return Ok(());
     }
 
-    // 2. VOICE INTERCEPTION 🎙️
     if msg.voice().is_some() {
         return crate::ai::process_voice_message(bot, msg, ctx).await;
     }
 
-    // 3. Text Routing
     if let Some(text) = msg.text() {
         let raw_text = text.trim();
         let lower_text = raw_text.to_lowercase();
@@ -765,7 +779,6 @@ pub async fn handle_raw_message_v2(
         .await;
     }
 
-    // 4. Media Rejection
     if msg.photo().is_some() || msg.video().is_some() || msg.document().is_some() {
         let _ = bot.send_message(msg.chat.id, "📸 <b>Media Detected:</b> I cannot analyze visual media. Please use text or voice.").parse_mode(teloxide::types::ParseMode::Html).await;
     }

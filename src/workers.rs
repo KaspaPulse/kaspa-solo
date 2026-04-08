@@ -16,19 +16,28 @@ use tracing::{error, info};
 use crate::context::AppContext;
 use crate::utils::{format_hash, format_short_wallet};
 
+/// Orchestrates all background enterprise tasks for the Kaspa Bot.
 pub fn start_all(ctx: AppContext, bot: Bot, token: CancellationToken) {
     spawn_price_monitor(ctx.clone(), token.clone());
     spawn_node_monitor(ctx.clone(), bot.clone(), token.clone());
-    spawn_utxo_monitor(ctx, bot, token);
+    spawn_utxo_monitor(ctx.clone(), bot, token.clone());
+
+    // ✅ FIX: Spawn the memory cleaner to prevent RAM leaks from AI context
+    spawn_memory_cleaner(ctx, token);
 }
 
+/// Periodic sync with CoinGecko for KAS price and Market Cap data.
 fn spawn_price_monitor(ctx: AppContext, token: CancellationToken) {
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = token.cancelled() => { break; }
                 _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                    if let Ok(r) = reqwest::Client::new().get("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_market_cap=true").header("User-Agent", "Mozilla/5.0").send().await {
+                    let client = reqwest::Client::new();
+                    if let Ok(r) = client.get("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_market_cap=true")
+                        .header("User-Agent", "Mozilla/5.0")
+                        .send().await
+                    {
                         if let Ok(j) = r.json::<serde_json::Value>().await {
                             let price = j["kaspa"]["usd"].as_f64().unwrap_or(0.0);
                             let mcap = j["kaspa"]["usd_market_cap"].as_f64().unwrap_or(0.0);
@@ -42,6 +51,7 @@ fn spawn_price_monitor(ctx: AppContext, token: CancellationToken) {
     });
 }
 
+/// Monitors Node health and attempts auto-reconnection on RPC failure.
 fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     tokio::spawn(async move {
         let _ = ctx.rpc.connect(None).await;
@@ -60,6 +70,7 @@ fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     });
 }
 
+/// Enterprise UTXO Engine: Performs deep DAG traversal to identify and alert on new mining rewards.
 fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     let semaphore = Arc::new(Semaphore::new(50));
     tokio::spawn(async move {
@@ -136,6 +147,7 @@ fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     });
 }
 
+/// Performs a deep payload analysis of blocks to extract mining Nonce and Worker metadata.
 async fn analyze_block_payload(
     rpc_cl: Arc<KaspaRpcClient>,
     f_tx: String,
@@ -250,4 +262,19 @@ async fn analyze_block_payload(
         extracted_nonce,
         extracted_worker,
     )
+}
+
+/// ✅ Periodically clears the AI context memory to prevent system RAM leaks.
+fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => { break; }
+                _ = tokio::time::sleep(Duration::from_secs(3600)) => {
+                    ctx.memory.clear();
+                    info!("[MEMORY CLEANER] Purged AI context history to prevent RAM leaks.");
+                }
+            }
+        }
+    });
 }

@@ -51,6 +51,7 @@ pub enum BotError {
 async fn main() -> Result<(), BotError> {
     dotenv().ok();
 
+    // Setup logging telemetry
     let file_appender = tracing_appender::rolling::never(".", "bot.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -79,25 +80,28 @@ async fn main() -> Result<(), BotError> {
     let pool = crate::state::init_db().await?;
     let cancel_token = CancellationToken::new();
 
-    // Graceful Shutdown Registry
+    // FIX: Graceful Shutdown Registry - Provides a buffer for DB and Worker cleanup
     let pool_shutdown = pool.clone();
     let ct_ctrlc = cancel_token.clone();
     tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
         warn!("[SYSTEM] CRITICAL: SIGINT received. Executing Graceful Database Shutdown...");
         pool_shutdown.close().await;
-        info!("[SYSTEM] Database connections closed safely. Terminating process.");
+        info!("[SYSTEM] Database connections closed safely. Cleaning up workers...");
         ct_ctrlc.cancel();
-        sleep(Duration::from_secs(1)).await;
-        std::process::exit(0);
+        sleep(Duration::from_secs(2)).await;
+        info!("[SYSTEM] Shutdown complete.");
+        return;
     });
 
     let state = Arc::new(DashMap::new());
     let memory: crate::context::ContextMemory = Arc::new(DashMap::new());
     let rate_limiter = crate::context::AppContext::new_rate_limiter();
 
-    // Initialize Vector DB
+    // Initialize AI RAG Knowledge Base
     crate::rag::init_knowledge_base().await;
+
+    // Migrate old wallets.json if it exists
     if let Ok(data) = fs::read_to_string("wallets.json").await {
         if let Ok(parsed) = serde_json::from_str::<HashMap<String, HashSet<i64>>>(&data) {
             for (k, v) in parsed {
@@ -108,10 +112,13 @@ async fn main() -> Result<(), BotError> {
             let _ = fs::rename("wallets.json", "wallets.json.migrated").await;
         }
     }
+
+    // Load active state into RAM
     if let Err(e) = crate::state::load_state_from_db(&pool, &state).await {
         error!("[DB ERROR] Data load failed: {}", e);
     }
 
+    // Establish Kaspa wRPC Tunnel
     let rpc_client = KaspaRpcClient::new(
         WrpcEncoding::SerdeJson,
         Some(&ws_url),
@@ -119,7 +126,7 @@ async fn main() -> Result<(), BotError> {
         Some(network_id),
         None,
     )
-    .map_err(|_| BotError::RpcConnection("Failed to establish secure wRPC tunnel".to_string()))?;
+    .map_err(|e| BotError::RpcConnection(format!("Tunnel failed: {}", e)))?;
 
     // The Global Context (Dependency Injection)
     let ctx = AppContext {
@@ -137,8 +144,11 @@ async fn main() -> Result<(), BotError> {
     let bot_token =
         env::var("BOT_TOKEN").map_err(|_| BotError::EnvVarMissing("BOT_TOKEN".into()))?;
     let bot = Bot::new(bot_token);
+
+    // Clear old updates to prevent message flooding on restart
     let _ = bot.delete_webhook().drop_pending_updates(true).send().await;
 
+    // Command Menu Setup
     let public_commands = vec![
         teloxide::types::BotCommand::new("start", "Start the bot and show help"),
         teloxide::types::BotCommand::new("help", "Show the ultimate guide and features"),
@@ -157,7 +167,7 @@ async fn main() -> Result<(), BotError> {
         })
         .await;
 
-    // Start detached workers
+    // Start detached background workers
     crate::workers::start_all(ctx.clone(), bot.clone(), cancel_token);
 
     // Advanced Routing Engine (dptree)
@@ -171,8 +181,10 @@ async fn main() -> Result<(), BotError> {
         .branch(Update::filter_my_chat_member().endpoint(handlers::handle_block_user))
         .branch(Update::filter_message().endpoint(handlers::handle_raw_message_v2));
 
+    info!("🚀 Dispatcher is LIVE! Ready for users.");
+
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![ctx]) // Inject AppContext securely to all endpoints
+        .dependencies(dptree::deps![ctx])
         .enable_ctrlc_handler()
         .default_handler(|update: Arc<Update>| async move {
             tracing::debug!(

@@ -16,7 +16,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let api_key = match std::env::var("OPENAI_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            let _ = bot.send_message(msg.chat.id, "ðŸŽ™ï¸ <b>Audio Detected:</b> Voice analysis is currently disabled (Missing API Key). Please use text.").parse_mode(teloxide::types::ParseMode::Html).await;
+            let _ = bot.send_message(msg.chat.id, "🎙️ <b>Audio Detected:</b> Voice analysis is currently disabled (Missing API Key). Please use text.").parse_mode(teloxide::types::ParseMode::Html).await;
             return Ok(());
         }
     };
@@ -29,7 +29,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let _ = bot
         .send_message(
             msg.chat.id,
-            "ðŸŽ§ <i>Listening and processing your voice note...</i>",
+            "🎧 <i>Listening and processing your voice note...</i>",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .await;
@@ -70,7 +70,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let _ = bot
         .send_message(
             msg.chat.id,
-            "âš ï¸ Sorry, I could not transcribe the audio clearly. Please try again.",
+            "⚠️ Sorry, I could not transcribe the audio clearly. Please try again.",
         )
         .await;
     Ok(())
@@ -96,7 +96,6 @@ pub async fn process_conversational_intent(
 
     let client = Client::new();
 
-    // âš ï¸ FIXED: Added proper commas between JSON tool objects!
     let tools = json!([
         {
             "type": "function",
@@ -114,7 +113,7 @@ pub async fn process_conversational_intent(
                 "parameters": { "type": "object", "properties": {}, "required": [] }
             }
         },
-                {
+        {
             "type": "function",
             "function": {
                 "name": "search_kaspa_docs",
@@ -261,8 +260,17 @@ pub async fn process_conversational_intent(
 async fn execute_get_balance(ctx: &AppContext, chat_id: i64) -> String {
     let mut total = 0.0;
     let mut details = String::new();
-    for e in ctx.state.iter().filter(|e| e.value().contains(&chat_id)) {
-        if let Ok(a) = Address::try_from(e.key().as_str()) {
+
+    // FIX: Collect wallets into a vector first to avoid DashMap deadlocks across .await boundaries.
+    let tracked_wallets: Vec<String> = ctx
+        .state
+        .iter()
+        .filter(|e| e.value().contains(&chat_id))
+        .map(|e| e.key().clone())
+        .collect();
+
+    for wallet_str in tracked_wallets {
+        if let Ok(a) = Address::try_from(wallet_str.as_str()) {
             if let Ok(utxos) = ctx.rpc.get_utxos_by_addresses(vec![a.clone()]).await {
                 let k = utxos
                     .iter()
@@ -272,12 +280,13 @@ async fn execute_get_balance(ctx: &AppContext, chat_id: i64) -> String {
                 total += k;
                 details.push_str(&format!(
                     "Wallet {}: {} KAS. ",
-                    format_short_wallet(e.key()),
+                    format_short_wallet(&wallet_str),
                     k
                 ));
             }
         }
     }
+
     if total == 0.0 {
         return "User has 0 balances or no wallets tracked.".to_string();
     }

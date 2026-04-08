@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use tokio::fs;
-use tracing::info;
+use tracing::{error, info};
 
 const EMBEDDING_API_URL: &str = "https://api.openai.com/v1/embeddings";
 
@@ -56,14 +56,20 @@ pub async fn init_knowledge_base() {
     }
 
     if updated {
-        let _ = fs::write(
-            "knowledge.json",
-            serde_json::to_string_pretty(&docs).unwrap(),
-        )
-        .await;
+        // FIX: Atomic write using a temporary file to prevent corruption
+        let tmp_path = "knowledge.json.tmp";
+        match serde_json::to_string_pretty(&docs) {
+            Ok(json_data) => {
+                if fs::write(tmp_path, json_data).await.is_ok() {
+                    let _ = fs::rename(tmp_path, "knowledge.json").await;
+                    info!("[RAG] Knowledge base updated with new embeddings.");
+                }
+            }
+            Err(e) => error!("[RAG] Failed to serialize updated docs: {}", e),
+        }
     }
 
-    KNOWLEDGE_BASE.set(docs).unwrap();
+    let _ = KNOWLEDGE_BASE.set(docs);
     info!("[RAG] Vector Knowledge Base initialized successfully.");
 }
 
