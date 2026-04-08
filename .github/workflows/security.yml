@@ -19,10 +19,10 @@ jobs:
       - name: Install Modern Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Cargo Audit & Cargo Deny
-        run: |
-          cargo install cargo-audit
-          cargo install cargo-deny
+      - name: Install Security Tools (Ultra-Fast Pre-built)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
 
       - name: Run Deep Security Scan (Audit)
         run: cargo audit
