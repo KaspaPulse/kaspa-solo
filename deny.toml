@@ -1,9 +1,15 @@
 ﻿[advisories]
-ignore = []
+# Acknowledge and ignore "unmaintained" warnings for deep transitive dependencies
+# that do not have active security vulnerabilities.
+ignore = [
+    "RUSTSEC-2025-0052", # async-std
+    "RUSTSEC-2024-0375", # atty
+    "RUSTSEC-2024-0384", # instant
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2024-0370", # proc-macro-error
+]
 
 [licenses]
-# In modern cargo-deny, anything not explicitly allowed is automatically denied.
-# Therefore, 'unlicensed' and 'copyleft' deny flags are obsolete and removed.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -16,7 +22,8 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "Unicode-3.0",
-    "LGPL-3.0-only"
+    "LGPL-3.0-only",
+    "CDLA-Permissive-2.0"
 ]
 
 [bans]
