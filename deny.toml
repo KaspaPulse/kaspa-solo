@@ -1,7 +1,4 @@
 ﻿[advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-notice = "warn"
 ignore = []
 
 [licenses]
@@ -12,4 +9,3 @@ copyleft = "deny"
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
-highlight = "all"
